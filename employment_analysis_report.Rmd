@@ -1,0 +1,124 @@
+---
+output:
+   html_document:
+    theme: cerulean
+    highlight: tango
+    self_contained: true
+  
+---
+
+```{r, include = FALSE}
+
+library(dplyr)
+library(ggplot2)
+library(rstatix)
+library(rmdformats)
+df <- data.frame(read.csv("employees.csv", sep=";", header =T,encoding = "UTF-8"))
+df$Start <- as.Date(as.character(as.Date(df$Start),format="%Y-%m-%d"))
+df$End <- as.Date(as.character(as.Date(df$End),format="%Y-%m-%d"))
+
+
+df$Experience<-round(as.numeric(df$Experience/30),2)
+df["Duration"] <-  (df["End"] - df["Start" ])
+df$Duration= as.numeric(df$Duration)/365
+
+df <- filter(df, Duration <= 75)
+
+
+
+
+
+```
+
+## Analysis
+
+##### **Research Question: Are employees with more prior work experience employed longer in the company than career starters?**
+
+**Parameters:**
+
+
+```{r}
+
+M_E = 24  # Months of prior work experience to be considered experienced
+M_B = 4 # Months of prior work experience to be considered a career starter
+
+```
+
+
+```{r echo= FALSE}
+df["Group"] <-NA
+df$Group[df$Experience >= M_E ] <- "Experienced"
+df$Group[df$Experience <= M_B ] <- "Beginner"
+df<-filter(df,!is.na(df$Group))
+```
+
+* **Experienced **: Employees, whose prior work experience is at least `r M_E` months (n= `r count(filter(df, Group == "Experienced"))`) <br/> 
+* **Career Sarters**: Employees, whose prior work experience is `r M_B` months or less (n= `r count(filter(df, Group == "Beginner"))`).
+
+<br/> 
+
+
+**Visualization through boxplots**
+<br/> 
+
+```{r echo= FALSE, fig.align="center", fig.width=6, fig.height=4}
+
+stat_box_data <- function(y, upper_limit = max(y)*1.2) {
+  return( 
+    data.frame(
+      y = 0.95 * upper_limit,
+      label = paste('count =', length(y), '\n',
+                    'mean =', round(mean(y), 1), '\n')
+    )
+  )
+}
+
+ggplot(df, aes(x=Group, y =Duration)) + geom_boxplot() + xlab("Prior Work Experience") + ylab("Employment Period") + stat_summary(
+  fun.data = stat_box_data, 
+  geom = "text", 
+  hjust = 0.5,
+  vjust = 0.9) +  theme(text = element_text(size=12))
+
+```
+```{r, echo =FALSE}
+q_b<-unname(quantile(df$Duration[df$Group == "Beginner"]))
+iqr_b <-q_b[4]- q_b[2]
+q_e <-unname(quantile(df$Duration[df$Group == "Experienced"]))
+iqr_e <-q_e[4]- q_e[2]
+```
+
+* The boxes each show the middle 50% of the data; the dots are outliers 
+`r if (iqr_e > iqr_b + 1){paste("* The boxplot indicates that the data in the second group are more widely distributed than in the first group")}`
+* Mean in group "Career Starters": `r  round(unname(t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$estimate["mean in group Beginner"]),2)`
+* Mean in group "Experienced": `r round(unname(t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$estimate["mean in group Experienced"]),2)`
+
+```{r include = FALSE}
+
+if (count(filter(df, Group =="Experienced"))<=30 |count(filter(df, Group =="Beginner")) <=30){p1 <-round(wilcox.test(df$Duration~df$Group, correct =FALSE)$p.value,4)} else {p1<-round(t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$p.value,3)}
+
+if (count(filter(df, Group =="Experienced"))<=30 |count(filter(df, Group =="Beginner")) <=30){ci<- round(wilcox.test(df$Duration~df$Group, correct =FALSE)$conf.int,2)} else {ci <- round( t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$conf.int,2)}
+
+
+round(unname(t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$estimate["mean in group Erfahren"]),2)
+
+cohensd <-df %>% cohens_d(Duration~Group, var.equal = TRUE)
+cohensd <- abs(cohensd$effsize)
+```
+<br>
+**Statistical test**
+<br>
+
+* Test used: `r if (count(filter(df, Group =="Experienced"))<=30 |count(filter(df, Group =="Beginner")) <=30) {wilcox.test(df$Duration~df$Group, correct =FALSE)$method} else {t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")$method}`   
+* Result: The difference is `r if (p1 >= 0.05) {paste("not significant")} else {paste("significant")}` `r if (p1 < 0.001){paste("(p < 0.001)")} else {paste("(p = ",p1,")")}` `r if (p1 < 0.05 & cohensd >= 0.5) {paste(" and the effect size is large.")} else if (p1 < 0.05 & cohensd < 0.1){"but the effect size is negligible"} else if (p1 < 0.05 & between(cohensd,0.1,0.3)){"but the effect size is small"} else if (p1 < 0.05 & between(cohensd,0.3,0.5)){" and the effect site is moderate"} else {}` `r if (p1 < 0.05){paste("(Cohen's d =", round(cohensd,2),")")}`  
+`r if (p1 < 0.05 & ci[2] < 0) {paste("* The confidence interval indicates that there is a 95% probability that the difference between the mean values is at least ",abs(ci[2]), ". This means that it is very likely that experienced employees are employed in the company at least 2  ", abs(ci[2]), "  years longer than career starters.")}`
+
+```{r echo = FALSE}
+
+#describeBy(df$Duration,df$Group) #
+if (count(filter(df, Group =="Experienced"))<=30 |count(filter(df, Group =="Beginner")) <=30){wilcox.test(df$Duration~df$Group, correct =FALSE)} else {t.test(df$Duration~df$Group, var.equal= FALSE, alternative = "less")}
+#str(wilcox.test(df$Duration~df$Group, correct =FALSE, conf.int= TRUE))
+#df_2 %>% cohens_d(Duration~Berufserfahrung, var.equal = FALSE)
+```
+
+
+
